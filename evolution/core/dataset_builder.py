@@ -6,8 +6,10 @@ B) SessionDB mining — extract real usage patterns and score with LLM-as-judge
 C) Golden sets — hand-curated JSONL files
 """
 
+import ast
 import json
 import random
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
@@ -133,16 +135,33 @@ class SyntheticDatasetBuilder:
             )
 
         # Parse the generated test cases
+        # The model may output Python dict literals (single quotes) or non-standard JSON.
+        # Use ast.literal_eval as a tolerant fallback before standard json.loads.
+        cases_raw = None
         try:
             cases_raw = json.loads(result.test_cases)
         except json.JSONDecodeError:
-            # Try to extract JSON from the response
-            import re
-            match = re.search(r'\[.*\]', result.test_cases, re.DOTALL)
-            if match:
-                cases_raw = json.loads(match.group())
-            else:
-                raise ValueError(f"Could not parse test cases from LLM output: {result.test_cases[:200]}")
+            try:
+                import ast
+                parsed = ast.literal_eval(result.test_cases)
+                if isinstance(parsed, list):
+                    cases_raw = parsed
+                elif isinstance(parsed, dict) and "test_cases" in parsed:
+                    cases_raw = parsed["test_cases"]
+            except (ValueError, SyntaxError):
+                pass
+
+            if cases_raw is None:
+                # Try to extract the first JSON array from the response
+                match = re.search(r'\[.*\]', result.test_cases, re.DOTALL)
+                if match:
+                    try:
+                        cases_raw = json.loads(match.group())
+                    except json.JSONDecodeError:
+                        pass
+
+            if cases_raw is None:
+                raise ValueError(f"Could not parse test cases from LLM output (tried json, ast.literal_eval, and regex): {result.test_cases[:300]}")
 
         examples = [
             EvalExample(
