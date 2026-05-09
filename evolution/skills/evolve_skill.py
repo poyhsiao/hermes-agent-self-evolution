@@ -291,6 +291,10 @@ def evolve(
     lm = dspy.LM(eval_model)
     dspy.configure(lm=lm)
 
+    # Create optimizer LM (may be same as eval_model or different based on CLI flag)
+    opt_lm = dspy.LM(optimizer_model)
+    dspy.configure(lm=opt_lm)
+
     # Suppress the known MIPROv2 warning about unused fields in InstructSelector
     # (program_code, module, program_description, module_description, previous_instructions)
     # — these are passed by MIPROv2 internally but InstructSelector only uses a subset.
@@ -322,27 +326,28 @@ def evolve(
             max_steps=iterations,
         )
         optimizer_name = "GEPA"
-        optimized_module = optimizer.compile(
-            baseline_module,
-            trainset=trainset,
-            valset=valset,
-        )
-    except Exception as e:
-        # Fall back to MIPROv2 if GEPA isn't available in this DSPy version
+        # Let compile errors bubble up — only catch GEPA unavailability
+    except (AttributeError, ImportError, type(None)) as e:
+        # GEPA not available in this DSPy version — fall back to MIPROv2
         console.print(f"[yellow]GEPA not available ({e}), falling back to MIPROv2[/yellow]")
         optimizer = dspy.MIPROv2(
             metric=skill_fitness_metric,
             auto="light",
         )
         optimizer_name = "MIPROv2"
-        optimized_module = optimizer.compile(
-            baseline_module,
-            trainset=trainset,
-            valset=valset,
-        )
+
+    # Run optimization — compile errors are not caught and will propagate
+    optimized_module = optimizer.compile(
+        baseline_module,
+        trainset=trainset,
+        valset=valset,
+    )
 
     elapsed = time.time() - start_time
-    console.print(f"\n  Optimization completed in {elapsed:.1f}s")
+    console.print(f"\n  Optimization completed in {elapsed:.1f}s ({optimizer_name})")
+
+    # Restore eval LM for body evolution and holdout evaluation
+    dspy.configure(lm=lm)
 
     # ── 6. Extract evolved instruction from MIPRO ───────────────────────
     # The optimized module's skill_text contains the instruction that was optimized
