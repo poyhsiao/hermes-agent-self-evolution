@@ -24,3 +24,7 @@ snapshots/
 .vscode/
 *.swp
 *.swo
+
+# Local output / scripts (not for repo)
+output/
+scripts/
