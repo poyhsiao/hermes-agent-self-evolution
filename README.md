@@ -1,6 +1,6 @@
 # 🧬 Hermes Agent Self-Evolution
 
-**Evolutionary self-improvement for [Hermes Agent](https://github.com/NousResearch/hermes-agent).**
+**Evolutionary self-improvement for [Hermes Agent](https://github.com/NousResearch/hermes-agent).** Forked from [NousResearch/hermes-agent-self-evolution](https://github.com/NousResearch/hermes-agent-self-evolution).
 
 Hermes Agent Self-Evolution uses DSPy + GEPA (Genetic-Pareto Prompt Evolution) to automatically evolve and optimize Hermes Agent's skills, tool descriptions, system prompts, and code — producing measurably better versions through reflective evolutionary search.
 
@@ -29,7 +29,7 @@ GEPA reads execution traces to understand *why* things fail (not just that they 
 
 ```bash
 # Install
-git clone https://github.com/NousResearch/hermes-agent-self-evolution.git
+git clone https://github.com/poyhsiao/hermes-agent-self-evolution.git
 cd hermes-agent-self-evolution
 pip install -e ".[dev]"
 
@@ -65,6 +65,16 @@ python -m evolution.skills.evolve_skill \
 |--------|-------------|---------|
 | **[DSPy](https://github.com/stanfordnlp/dspy) + [GEPA](https://github.com/gepa-ai/gepa)** | Reflective prompt evolution — reads execution traces, proposes targeted mutations | MIT |
 | **[Darwinian Evolver](https://github.com/imbue-ai/darwinian_evolver)** | Code evolution with Git-based organisms | AGPL v3 (external CLI only) |
+
+## Fork Differences
+
+This fork maintains additional fixes beyond the upstream [NousResearch/hermes-agent-self-evolution](https://github.com/NousResearch/hermes-agent-self-evolution):
+
+- **SyntheticDatasetBuilder fallback** — `ast.literal_eval` fallback for MiniMax JSON parsing failures
+- **GEPA fallback** — Graceful degradation to MIPROv2 when GEPA is unavailable
+- **Skill body evolution** — Improved `evolve_skill_body` that preserves YAML frontmatter structure
+- **Holdout improvements** — Robust adapter, cleaner holdout evaluation logic
+- **Hermes session importer** — Fix for short skill name matching
 
 ## Guardrails
 
