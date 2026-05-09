@@ -88,6 +88,49 @@ class EvalDataset:
         ]
 
 
+def _parse_test_cases(raw: str) -> list[dict]:
+    """Parse test cases from LLM output with multiple fallback strategies.
+
+    1. Strict JSON
+    2. Python literal (ast.literal_eval) — handles single-quoted keys
+    3. Non-greedy regex extraction of first JSON array
+    """
+    # 1) Try strict JSON first
+    try:
+        parsed = json.loads(raw)
+        # Handle wrapped {"test_cases": [...]} shape
+        if isinstance(parsed, dict) and "test_cases" in parsed:
+            parsed = parsed["test_cases"]
+        if isinstance(parsed, list):
+            return parsed
+        # Fall through: not a list even after unwrapping
+    except json.JSONDecodeError:
+        pass
+
+    # 2) Try tolerant Python literal parsing
+    try:
+        parsed = ast.literal_eval(raw)
+        if isinstance(parsed, list):
+            return parsed
+        if isinstance(parsed, dict) and "test_cases" in parsed:
+            return parsed["test_cases"]
+    except (ValueError, SyntaxError):
+        pass
+
+    # 3) Try extracting first JSON array via non-greedy regex
+    match = re.search(r"\[.*?\]", raw, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(
+        f"Could not parse test cases from LLM output "
+        f"(tried json, ast.literal_eval, and regex): {raw[:300]}"
+    )
+
+
 class SyntheticDatasetBuilder:
     """Generate evaluation datasets using a strong LLM.
 
@@ -137,31 +180,8 @@ class SyntheticDatasetBuilder:
         # Parse the generated test cases
         # The model may output Python dict literals (single quotes) or non-standard JSON.
         # Use ast.literal_eval as a tolerant fallback before standard json.loads.
-        cases_raw = None
-        try:
-            cases_raw = json.loads(result.test_cases)
-        except json.JSONDecodeError:
-            try:
-                import ast
-                parsed = ast.literal_eval(result.test_cases)
-                if isinstance(parsed, list):
-                    cases_raw = parsed
-                elif isinstance(parsed, dict) and "test_cases" in parsed:
-                    cases_raw = parsed["test_cases"]
-            except (ValueError, SyntaxError):
-                pass
-
-            if cases_raw is None:
-                # Try to extract the first JSON array from the response
-                match = re.search(r'\[.*\]', result.test_cases, re.DOTALL)
-                if match:
-                    try:
-                        cases_raw = json.loads(match.group())
-                    except json.JSONDecodeError:
-                        pass
-
-            if cases_raw is None:
-                raise ValueError(f"Could not parse test cases from LLM output (tried json, ast.literal_eval, and regex): {result.test_cases[:300]}")
+# Parse the generated test cases using the helper (handles JSON, ast.literal_eval, and non-greedy regex fallback)
+        cases_raw = _parse_test_cases(result.test_cases)
 
         examples = [
             EvalExample(

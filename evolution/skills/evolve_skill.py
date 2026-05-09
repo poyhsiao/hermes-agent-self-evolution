@@ -7,6 +7,7 @@ Usage:
 
 import ast
 import json
+import logging
 import re
 import sys
 import time
@@ -74,6 +75,35 @@ class RobustJSONAdapter(JSONAdapter):
             # Last resort: treat the entire completion as the output
             console.print(f"[yellow]  [RobustJSONAdapter] No structured parse; using raw completion ({len(completion)} chars)[/yellow]")
             return {field_name: completion.strip()}
+
+
+# ── LLM response normalization ─────────────────────────────────────────────
+
+def _normalize_llm_text_response(raw: str) -> str:
+    """Normalize LLM output: unwrap {'text': ...} wrappers and strip code fences."""
+    text = str(raw).strip()
+
+    # Try to unwrap {"text": ...} / {'text': ...} — only at the start of the string
+    if text.startswith("{") or text.startswith("'{"):
+        text_like_pattern = re.compile(r"^\s*\{\s*['\"]?text['\"]?\s*:\s*")
+        if text_like_pattern.match(text):
+            try:
+                parsed = ast.literal_eval(text)
+                if isinstance(parsed, dict) and "text" in parsed:
+                    text = str(parsed["text"])
+            except (ValueError, SyntaxError):
+                text = re.sub(
+                    r"^\s*\{\s*['\"]?text['\"]?\s*:\s*['\"]?",
+                    "",
+                    text,
+                )
+                text = re.sub(r"['\"]?\s*\}\s*$", "", text)
+
+    # Strip ONLY outer markdown code fences (anchored to string start/end, not per-line)
+    text = re.sub(r'^```(?:\w+)?\s*', '', text).strip()
+    text = re.sub(r'\s*```$', '', text).strip()
+
+    return text
 
 
 # ── LLM-based skill body evolution ───────────────────────────────────────────
@@ -144,24 +174,7 @@ IMPORTANT: Output ONLY the rewritten skill body in plain markdown. Do NOT wrap i
         else:
             generated = str(response)
 
-    # Strip any Python dict / wrapper formats the model might emit
-    _raw = generated
-    if generated.startswith("{") or generated.startswith("'{"):
-        try:
-            parsed = ast.literal_eval(generated)
-            if isinstance(parsed, dict) and "text" in parsed:
-                generated = parsed["text"]
-        except (ValueError, SyntaxError):
-            # Fallback: strip known dict prefixes/suffixes
-            generated = re.sub(r"^\{'text':\s*['\"]?", "", generated)
-            generated = re.sub(r"['\"]?\s*\}$", "", generated)
-            generated = re.sub(r"^\{\"text\":\s*\"?", "", generated)
-            generated = re.sub(r"\"?\s*\}$", "", generated)
-    generated = generated.strip()
-
-    # Strip any markdown code fences
-    generated = re.sub(r'^```(?:markdown)?\s*', '', generated, flags=re.MULTILINE).strip()
-    generated = re.sub(r'\s*```$', '', generated, flags=re.MULTILINE).strip()
+        generated = _normalize_llm_text_response(generated)
 
     if not generated or len(generated) < 100:
         console.print("[yellow]  Skill body evolution produced very short output; keeping original body[/yellow]")
@@ -398,17 +411,23 @@ def evolve(
                     "evolved_score": evolved_score,
                 })
         except Exception as e:
+            task_input_preview = getattr(ex, "task_input", "")[:60]
+            logging.exception(
+                "Error during holdout evaluation for task_input=%r",
+                task_input_preview,
+            )
             holdout_scores.append({
-                "example": getattr(ex, "task_input", "")[:60],
+                "example": task_input_preview,
                 "baseline_score": None,
                 "evolved_score": None,
+                "error": str(e),
             })
 
     # Filter out failed evaluations
     valid_baseline = [s["baseline_score"] for s in holdout_scores if s["baseline_score"] is not None]
     valid_evolved = [s["evolved_score"] for s in holdout_scores if s["evolved_score"] is not None]
-    avg_baseline = sum(valid_baseline) / max(1, len(valid_baseline))
-    avg_evolved = sum(valid_evolved) / max(1, len(valid_evolved))
+    avg_baseline = sum(valid_baseline) / len(valid_baseline) if valid_baseline else None
+    avg_evolved = sum(valid_evolved) / len(valid_evolved) if valid_evolved else None
 
     console.print(f"\n  Holdout: {len(valid_evolved)}/{len(holdout_examples)} examples evaluated successfully")
 
