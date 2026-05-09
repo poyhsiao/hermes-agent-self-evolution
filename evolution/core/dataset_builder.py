@@ -174,6 +174,7 @@ class SyntheticDatasetBuilder:
         # Parse the generated test cases
         # The model may output Python dict literals (single quotes) or non-standard JSON.
         # Use ast.literal_eval as a tolerant fallback before standard json.loads.
+# Parse the generated test cases using the helper (handles JSON, ast.literal_eval, and non-greedy regex fallback)
         cases_raw = _parse_test_cases(result.test_cases)
 
         examples = [

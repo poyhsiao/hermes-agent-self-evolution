@@ -174,7 +174,7 @@ IMPORTANT: Output ONLY the rewritten skill body in plain markdown. Do NOT wrap i
         else:
             generated = str(response)
 
-    generated = _normalize_llm_text_response(generated)
+        generated = _normalize_llm_text_response(generated)
 
     if not generated or len(generated) < 100:
         console.print("[yellow]  Skill body evolution produced very short output; keeping original body[/yellow]")
