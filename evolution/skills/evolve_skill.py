@@ -7,6 +7,7 @@ Usage:
 
 import ast
 import json
+import logging
 import re
 import sys
 import time
@@ -144,19 +145,20 @@ IMPORTANT: Output ONLY the rewritten skill body in plain markdown. Do NOT wrap i
         else:
             generated = str(response)
 
-    # Strip any Python dict / wrapper formats the model might emit
+    # Strip known dict/wrapper formats (NOT any leading "{")
     _raw = generated
-    if generated.startswith("{") or generated.startswith("'{"):
-        try:
-            parsed = ast.literal_eval(generated)
-            if isinstance(parsed, dict) and "text" in parsed:
-                generated = parsed["text"]
-        except (ValueError, SyntaxError):
-            # Fallback: strip known dict prefixes/suffixes
-            generated = re.sub(r"^\{'text':\s*['\"]?", "", generated)
-            generated = re.sub(r"['\"]?\s*\}$", "", generated)
-            generated = re.sub(r"^\{\"text\":\s*\"?", "", generated)
-            generated = re.sub(r"\"?\s*\}$", "", generated)
+    if (generated.startswith("{") or generated.startswith("'{")):
+        # Only unwrap if it matches the specific {"text":...} or {'text':...} pattern
+        text_like_pattern = re.compile(r"^['\"]?['\"]?text['\"]?\s*:\s*")
+        if text_like_pattern.search(generated) or generated.startswith("{'") or generated.startswith('{"'):
+            try:
+                parsed = ast.literal_eval(generated)
+                if isinstance(parsed, dict) and "text" in parsed:
+                    generated = parsed["text"]
+            except (ValueError, SyntaxError):
+                # Fallback: strip known dict prefixes/suffixes only for text wrappers
+                generated = re.sub(r"^\s*\{\s*['\"]?text['\"]?\s*:\s*['\"]?", "", generated)
+                generated = re.sub(r"['\"]?\s*\}\s*$", "", generated)
     generated = generated.strip()
 
     # Strip any markdown code fences
@@ -398,10 +400,16 @@ def evolve(
                     "evolved_score": evolved_score,
                 })
         except Exception as e:
+            task_input_preview = getattr(ex, "task_input", "")[:60]
+            logging.exception(
+                "Error during holdout evaluation for task_input=%r",
+                task_input_preview,
+            )
             holdout_scores.append({
-                "example": getattr(ex, "task_input", "")[:60],
+                "example": task_input_preview,
                 "baseline_score": None,
                 "evolved_score": None,
+                "error": str(e),
             })
 
     # Filter out failed evaluations
