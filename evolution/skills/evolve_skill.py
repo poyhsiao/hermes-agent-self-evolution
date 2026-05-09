@@ -77,6 +77,35 @@ class RobustJSONAdapter(JSONAdapter):
             return {field_name: completion.strip()}
 
 
+# ── LLM response normalization ─────────────────────────────────────────────
+
+def _normalize_llm_text_response(raw: str) -> str:
+    """Normalize LLM output: unwrap {'text': ...} wrappers and strip code fences."""
+    text = str(raw).strip()
+
+    # Try to unwrap {"text": ...} / {'text': ...} — only at the start of the string
+    if text.startswith("{") or text.startswith("'{"):
+        text_like_pattern = re.compile(r"^\s*\{\s*['\"]?text['\"]?\s*:\s*")
+        if text_like_pattern.match(text):
+            try:
+                parsed = ast.literal_eval(text)
+                if isinstance(parsed, dict) and "text" in parsed:
+                    text = str(parsed["text"])
+            except (ValueError, SyntaxError):
+                text = re.sub(
+                    r"^\s*\{\s*['\"]?text['\"]?\s*:\s*['\"]?",
+                    "",
+                    text,
+                )
+                text = re.sub(r"['\"]?\s*\}\s*$", "", text)
+
+    # Strip markdown code fences
+    text = re.sub(r'^```(?:\w+)?\s*', '', text, flags=re.MULTILINE).strip()
+    text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE).strip()
+
+    return text
+
+
 # ── LLM-based skill body evolution ───────────────────────────────────────────
 
 def evolve_skill_body(
@@ -145,25 +174,7 @@ IMPORTANT: Output ONLY the rewritten skill body in plain markdown. Do NOT wrap i
         else:
             generated = str(response)
 
-    # Strip known dict/wrapper formats (NOT any leading "{")
-    _raw = generated
-    if (generated.startswith("{") or generated.startswith("'{")):
-        # Only unwrap if it matches the specific {"text":...} or {'text':...} pattern
-        text_like_pattern = re.compile(r"^['\"]?['\"]?text['\"]?\s*:\s*")
-        if text_like_pattern.search(generated) or generated.startswith("{'") or generated.startswith('{"'):
-            try:
-                parsed = ast.literal_eval(generated)
-                if isinstance(parsed, dict) and "text" in parsed:
-                    generated = parsed["text"]
-            except (ValueError, SyntaxError):
-                # Fallback: strip known dict prefixes/suffixes only for text wrappers
-                generated = re.sub(r"^\s*\{\s*['\"]?text['\"]?\s*:\s*['\"]?", "", generated)
-                generated = re.sub(r"['\"]?\s*\}\s*$", "", generated)
-    generated = generated.strip()
-
-    # Strip any markdown code fences
-    generated = re.sub(r'^```(?:markdown)?\s*', '', generated, flags=re.MULTILINE).strip()
-    generated = re.sub(r'\s*```$', '', generated, flags=re.MULTILINE).strip()
+    generated = _normalize_llm_text_response(generated)
 
     if not generated or len(generated) < 100:
         console.print("[yellow]  Skill body evolution produced very short output; keeping original body[/yellow]")
