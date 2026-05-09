@@ -97,7 +97,13 @@ def _parse_test_cases(raw: str) -> list[dict]:
     """
     # 1) Try strict JSON first
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        # Handle wrapped {"test_cases": [...]} shape
+        if isinstance(parsed, dict) and "test_cases" in parsed:
+            parsed = parsed["test_cases"]
+        if isinstance(parsed, list):
+            return parsed
+        # Fall through: not a list even after unwrapping
     except json.JSONDecodeError:
         pass
 

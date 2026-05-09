@@ -99,9 +99,9 @@ def _normalize_llm_text_response(raw: str) -> str:
                 )
                 text = re.sub(r"['\"]?\s*\}\s*$", "", text)
 
-    # Strip markdown code fences
-    text = re.sub(r'^```(?:\w+)?\s*', '', text, flags=re.MULTILINE).strip()
-    text = re.sub(r'\s*```$', '', text, flags=re.MULTILINE).strip()
+    # Strip ONLY outer markdown code fences (anchored to string start/end, not per-line)
+    text = re.sub(r'^```(?:\w+)?\s*', '', text).strip()
+    text = re.sub(r'\s*```$', '', text).strip()
 
     return text
 
@@ -426,8 +426,8 @@ def evolve(
     # Filter out failed evaluations
     valid_baseline = [s["baseline_score"] for s in holdout_scores if s["baseline_score"] is not None]
     valid_evolved = [s["evolved_score"] for s in holdout_scores if s["evolved_score"] is not None]
-    avg_baseline = sum(valid_baseline) / max(1, len(valid_baseline))
-    avg_evolved = sum(valid_evolved) / max(1, len(valid_evolved))
+    avg_baseline = sum(valid_baseline) / len(valid_baseline) if valid_baseline else None
+    avg_evolved = sum(valid_evolved) / len(valid_evolved) if valid_evolved else None
 
     console.print(f"\n  Holdout: {len(valid_evolved)}/{len(holdout_examples)} examples evaluated successfully")
 
