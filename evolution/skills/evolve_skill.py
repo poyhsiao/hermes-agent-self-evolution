@@ -5,6 +5,7 @@ Usage:
     python -m evolution.skills.evolve_skill --skill arxiv --eval-source golden --dataset datasets/skills/arxiv/
 """
 
+import ast
 import json
 import re
 import sys
@@ -131,6 +132,8 @@ Requirements:
 {examples_text}
 ---
 ## Your rewritten skill body:
+
+IMPORTANT: Output ONLY the rewritten skill body in plain markdown. Do NOT wrap in quotes, dictionaries, code fences, or any wrapper. Start directly with the heading "# GitHub Code Review" (or whatever heading is appropriate).
 """
 
     lm = dspy.LM(config.eval_model)
@@ -140,6 +143,21 @@ Requirements:
             generated = response[0].text if hasattr(response[0], 'text') else str(response[0])
         else:
             generated = str(response)
+
+    # Strip any Python dict / wrapper formats the model might emit
+    _raw = generated
+    if generated.startswith("{") or generated.startswith("'{"):
+        try:
+            parsed = ast.literal_eval(generated)
+            if isinstance(parsed, dict) and "text" in parsed:
+                generated = parsed["text"]
+        except (ValueError, SyntaxError):
+            # Fallback: strip known dict prefixes/suffixes
+            generated = re.sub(r"^\{'text':\s*['\"]?", "", generated)
+            generated = re.sub(r"['\"]?\s*\}$", "", generated)
+            generated = re.sub(r"^\{\"text\":\s*\"?", "", generated)
+            generated = re.sub(r"\"?\s*\}$", "", generated)
+    generated = generated.strip()
 
     # Strip any markdown code fences
     generated = re.sub(r'^```(?:markdown)?\s*', '', generated, flags=re.MULTILINE).strip()
